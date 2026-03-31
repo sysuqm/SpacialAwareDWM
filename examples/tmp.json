@@ -152,14 +152,14 @@
             "_class_name": "get_class",
             "class_name": "torch.float16"
         },
-        "pretrained_model_name_or_path": "/media/data4/sumq/stabilityai/stable-diffusion-3.5-medium",
-        "model_checkpoint_path": "/media/data4/sumq/opendwm/ckpt/ctsd_35_tirda_bm_nwao_40k.pth"
+        "pretrained_model_name_or_path": "/media/data1/sumq/stabilityai/stable-diffusion-3.5-medium",
+        "model_checkpoint_path": "/media/data1/sumq/OpenDWM/ckpt/ctsd_35_tirda_bm_nwao_40k.pth"
     },
     "validation_dataset": {
         "_class_name": "dwm.datasets.common.DatasetAdapter",
         "base_dataset": {
             "_class_name": "dwm.datasets.preview.PreviewDataset",
-            "json_file": "/media/data4/sumq/opendwm/opendwm-data/nuscenes_scene-0627_package/data.json",
+            "json_file": "/media/data1/sumq/OpenDWM/opendwm-data/nuscenes_scene-0627_package/data.json",
             "sequence_length": 179,
             "fps_stride_tuples": [
                 [

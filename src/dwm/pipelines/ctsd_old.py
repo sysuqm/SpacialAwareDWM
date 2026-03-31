@@ -20,7 +20,6 @@ import transformers
 from peft import get_peft_model, get_peft_model_state_dict
 from peft.tuners.lora import LoraConfig, LoraLayer
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp import FullStateDictConfig, StateDictType
 
 import dwm.common
 import dwm.distributed
@@ -1215,78 +1214,93 @@ class CrossviewTemporalSD():
         torch.cuda.empty_cache()
 
         is_lora = self.config.get("lora_config", None) is not None
-        model_state_to_save = None
+        model_state_to_save = None # 最终要保存到磁盘的 state_dict (仅 Rank 0 持有)
         save_path = None
 
-        # --- [核心修复] 配置 FSDP 状态字典的保存策略 ---
-        # 确保完整模型只在 Rank 0 的 CPU 上聚合，避免其他 Rank OOM
-        save_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-        
-        # 使用上下文管理器收集状态字典 (自动去除 FSDP 命名及前缀)
-        if torch.distributed.is_initialized() and isinstance(self.model_wrapper, FSDP):
-            with FSDP.state_dict_type(self.model_wrapper, StateDictType.FULL_STATE_DICT, save_policy):
-                full_model_state_dict = self.model_wrapper.state_dict()
-        else:
-            # 单卡模式
-            full_model_state_dict = self.model.state_dict()
-
-        # --- 场景 A & B 处理逻辑 ---
         if is_lora:
-            if self.should_save: print(f"Saving LoRA state checkpoint at step {steps}...")
+            # 场景 A: 保存 LoRA 权重
+            # 所有 Ranks 都打印日志，因为它们都需要参与收集
+            print(f"Saving LoRA state checkpoint at step {steps}...")
             
-            if self.should_save: # 仅 Rank 0
+            full_model_state_dict = None # 临时变量，用于存放 Rank 0 收集到的完整权重
+            
+            # --- [修复] ---
+            # 步骤 1: 所有 Ranks 必须参与 FSDP/DDP 的集体操作来收集权重
+            if torch.distributed.is_initialized():
+                options = torch.distributed.checkpoint.state_dict.StateDictOptions(
+                    full_state_dict=True, cpu_offload=True)
+                full_model_state_dict = torch.distributed.checkpoint.state_dict\
+                    .get_model_state_dict(self.model_wrapper, options=options)
+            elif self.should_save:
+                # 单 GPU 情况
+                full_model_state_dict = self.model.state_dict()
+
+            # 步骤 2: 仅 Rank 0 (它现在拥有 full_model_state_dict) 筛选 LoRA 权重
+            if self.should_save:
+                # 我们利用 get_peft_model_state_dict 可以接收 state_dict 参数的功能
                 model_state_to_save = get_peft_model_state_dict(
                     self.model_wrapper,
-                    state_dict=full_model_state_dict 
+                    state_dict=full_model_state_dict # 传入我们刚收集到的完整字典
                 )
+                
+                # 仅 Rank 0 定义保存路径
                 save_dir = os.path.join(output_path, "lora")
                 os.makedirs(save_dir, exist_ok=True)
                 save_path = os.path.join(save_dir, f"{steps}.pth")
-                
+
         else:
-            if self.should_save: print(f"Saving full model state checkpoint at step {steps}...")
+            # 场景 B: 保存完整模型权重 (原始逻辑)
+            # 所有 Ranks 打印
+            print(f"Saving full model state checkpoint at step {steps}...")
             
-            if self.should_save: # 仅 Rank 0
-                model_state_to_save = full_model_state_dict
+            # 所有 Ranks 参与收集，Rank 0 获得字典
+            if torch.distributed.is_initialized():
+                options = torch.distributed.checkpoint.state_dict.StateDictOptions(
+                    full_state_dict=True, cpu_offload=True)
+                model_state_to_save = torch.distributed.checkpoint.state_dict\
+                    .get_model_state_dict(self.model_wrapper, options=options)
+            elif self.should_save:
+                model_state_to_save = self.model.state_dict()
+            
+            # 仅 Rank 0 定义保存路径
+            if self.should_save:
                 save_dir = os.path.join(output_path, "checkpoints")
                 os.makedirs(save_dir, exist_ok=True)
                 save_path = os.path.join(save_dir, f"{steps}.pth")
-
-        # --- [核心修复] 及时清理非 Rank 0 进程的内存 ---
-        if not self.should_save:
-            del full_model_state_dict
-            model_state_to_save = None
-
+        
+        # --- 屏障 1 ---
+        # 确保所有 Ranks 都完成了上面的 state_dict 收集
+        # 然后 Rank 0 才开始执行下面的 I/O（保存文件）
         if torch.distributed.is_initialized():
             torch.distributed.barrier()
 
         # --- 保存模型文件 ---
+        # 仅 Rank 0 执行
         if self.should_save and model_state_to_save is not None:
             torch.save(model_state_to_save, save_path)
             print(f"Model saved to {save_path}")
-            
-            # Rank 0 保存完毕后也释放内存
-            del model_state_to_save
-            del full_model_state_dict
 
+        # --- 屏障 2 ---
+        # 确保 Rank 0 已经完成了文件 I/O
+        # 然后所有 Ranks 才一起开始下一个集体操作（保存优化器）
         if torch.distributed.is_initialized():
             torch.distributed.barrier()
         
         # --- 保存优化器状态 ---
         optimizer_dir = os.path.join(output_path, "optimizer")
+        # Rank 0 创建目录，其他 Ranks 会因为 barrier 2 等待
         if self.should_save:
             os.makedirs(optimizer_dir, exist_ok=True)
-            
+        # 再加一个 barrier 确保目录已创建（FSDP 的 `distributed_save_optimizer_state` 可能需要目录存在）
         if torch.distributed.is_initialized():
             torch.distributed.barrier()
 
-        if self.should_save: print(f"Saving optimizer state at step {steps}...")
+        print(f"Saving optimizer state at step {steps}...") # 所有 Ranks 打印
         
-        # 你的分布式优化器保存逻辑
+        # 所有 Ranks 参与的集体操作
         dwm.distributed.distributed_save_optimizer_state(
             self.model_wrapper, self.optimizer,
-            optimizer_dir, str(steps)
-        )
+            optimizer_dir, str(steps))
 
     def log(self, global_step: int, log_steps: int):
         if self.should_save:
@@ -1727,7 +1741,7 @@ class CrossviewTemporalSD():
         diffusion_forcing_mode = (
             "frame_prediction_style" in self.common_config and
             self.common_config["frame_prediction_style"] == "diffusion_forcing"
-        )  # false
+        )
         if diffusion_forcing_mode:
             assert total_frame_count > \
                 self.inference_config["sequence_length_per_iteration"]

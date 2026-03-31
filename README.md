@@ -114,6 +114,7 @@ PYTHONPATH=src python examples/ctsd_generation_example.py -c examples/ctsd_35_6v
 
 ```bash
 PYTHONPATH=src python src/dwm/preview.py -c examples/ctsd_35_6views_video_generation_with_layout.json -o output/ctsd_35_6views_video_generation_with_layout
+CUDA_VISIBLE_DEVICES=1 PYTHONPATH=src python src/dwm/preview.py -c examples/ctsd_35_6views_video_generation_with_layout_carla.json -o output/ctsd_35_6views_video_generation_with_layout_carla
 ```
 
 ### Layout conditioned LiDAR generation with MaskGIT pipeline

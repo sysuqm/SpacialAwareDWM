@@ -1,7 +1,7 @@
 {
     "device": "cuda",
     "ddp_backend": "nccl",
-    "train_epochs": 6,
+    "train_epochs": 3,
     "generator_seed": 0,
     "data_shuffle": true,
     "global_state": {
@@ -9,9 +9,10 @@
             "_class_name": "dwm.fs.czip.CombinedZipFileSystem",
             "fs": {
                 "_class_name": "dwm.fs.dirfs.DirFileSystem",
-                "path": "/media/data2/sumq/nuscenes-zip/"
+                "path": "/media/data5/sumq/nuscenes-zip/"
             },
             "paths": [
+                "v1.0-trainval_meta.zip",
                 "interp_12Hz_trainval.zip",
                 "v1.0-trainval01_blobs.zip",
                 "v1.0-trainval02_blobs.zip",
@@ -30,22 +31,30 @@
             "_class_name": "torch.distributed.device_mesh.init_device_mesh",
             "device_type": "cuda",
             "mesh_shape": [
-                7,
-                1
+                1,
+                4
             ]
         }
     },
     "optimizer": {
         "_class_name": "torch.optim.AdamW",
-        "lr": 5e-5,
+        "lr": 1.25e-5,
         "betas": [
             0.9,
             0.975
         ]
     },
+    "lora_config":{
+        "_class_name": "peft.LoraConfig",
+        "r": 16,
+        "lora_alpha": 32,
+        "lora_dropout": 0,
+        "target_modules": ["to_q", "to_k", "to_v", "to_out.0", "add_q_proj", "add_k_proj", "add_v_proj", "to_add_out"]
+    },
     "pipeline": {
         "_class_name": "dwm.pipelines.ctsd.CrossviewTemporalSD",
         "common_config": {
+            "print_load_state_info": true,
             "frame_prediction_style": "ctsd",
             "___cat_condition": true,
             "cond_with_action": false,
@@ -346,8 +355,8 @@
             },
             "hdmap_image_settings": {},
             "image_description_settings": {
-                "path": "/cache/aoss.cn-sh-01.sensecoreapi-oss.cn/users/wuzehuan/workspaces/worldmodels/data/nuscenes_v1.0-trainval_caption_v2_train.json",
-                "time_list_dict_path": "/cache/aoss.cn-sh-01.sensecoreapi-oss.cn/users/wuzehuan/workspaces/worldmodels/data/nuscenes_v1.0-trainval_caption_v2_times_train.json",
+                "path": "/media/data4/sumq/opendwm/opendwm-data/nuscenes_v1.0-trainval_caption_v2/nuscenes_v1.0-trainval_caption_v2_train.json",
+                "time_list_dict_path": "/media/data4/sumq/opendwm/opendwm-data/nuscenes_v1.0-trainval_caption_v2/nuscenes_v1.0-trainval_caption_v2_times_train.json",
                 "align_keys": [
                     "time",
                     "weather"
@@ -482,7 +491,6 @@
             "keyframe_only": true,
             "enable_synchronization_check": false,
             "enable_camera_transforms": true,
-            "enable_sample_data": true,
             "enable_ego_transforms": true, 
             "_3dbox_image_settings": {
                 "color_table": {
@@ -642,35 +650,33 @@
         ]
     },
     "training_dataloader": {
-        "batch_size": 2,
-        "num_workers": 3,
+        "batch_size": 1,
+        "num_workers": 4,
         "prefetch_factor": 3,
         "collate_fn": {
             "_class_name": "dwm.datasets.common.CollateFnIgnoring",
             "keys": [
-                "clip_text",
-                "sample_data"
+                "clip_text"
             ]
         },
         "persistent_workers": true
     },
     "validation_dataloader": {
         "batch_size": 1,
-        "num_workers": 1,
+        "num_workers": 4,
         "prefetch_factor": 3,
         "collate_fn": {
             "_class_name": "dwm.datasets.common.CollateFnIgnoring",
             "keys": [
-                "clip_text",
-                "sample_data"
+                "clip_text"
             ]
         },
         "persistent_workers": true
     },
     "preview_dataloader": {
         "batch_size": 1,
-        "num_workers": 1,
-        "prefetch_factor": 1,
+        "num_workers": 4,
+        "prefetch_factor": 2,
         "shuffle": true,
         "drop_last": true,
         "collate_fn": {

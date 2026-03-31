@@ -8,3 +8,4 @@ output
 work_dirs
 wandb
 taming
+output/

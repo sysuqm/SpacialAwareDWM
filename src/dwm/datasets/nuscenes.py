@@ -509,6 +509,11 @@ class MotionDataset(torch.utils.data.Dataset):
         map_expansion: dict, map_expansion_dict: dict, tables: dict,
         indices: dict, sample_data: dict, hdmap_image_settings: dict
     ):
+        # # NOTE HACK
+
+        image = Image.new("RGB", (sample_data["width"], sample_data["height"]))
+        return image
+
         # options
         max_distance = hdmap_image_settings.get("max_distance", 65.0)
         pen_width = hdmap_image_settings.get("pen_width", 8)

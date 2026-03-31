@@ -1,53 +1,28 @@
 import contextlib
-import itertools
-import math
-import os
-import re
-import time
-
 import diffusers
 import diffusers.image_processor
-import einops
-import safetensors.torch
-import torch
-import torch.amp
-import torch.distributed.checkpoint.state_dict
-import torch.distributed.fsdp
-import torch.distributed.fsdp.sharded_grad_scaler
-import torch.utils.tensorboard
-import torchvision
-import transformers
-from peft import get_peft_model, get_peft_model_state_dict
-from peft.tuners.lora import LoraConfig, LoraLayer
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp import FullStateDictConfig, StateDictType
-
 import dwm.common
 import dwm.distributed
 import dwm.functional
 import dwm.models.crossview_temporal_unet
 import dwm.utils.preview
+import einops
+import itertools
+import math
+import os
+import re
+import safetensors.torch
+import time
+import torch
+import torch.amp
+import torch.distributed.checkpoint.state_dict
+import torch.distributed.fsdp
+import torch.distributed.fsdp.sharded_grad_scaler
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+import torch.utils.tensorboard
+import torchvision
+import transformers
 
-
-def custom_isinstance(obj, class_or_tuple):
-    """
-    一个自定义的 isinstance 函数，用于在检查类型前自动解包 PEFT 模型。
-
-    如果对象 `obj` 是一个 PEFT 模型 (PeftModel)，它会先获取其底层的
-    原始模型，然后再进行实际的 isinstance 类型检查。
-
-    Args:
-        obj: 需要检查的对象。
-        class_or_tuple: 类或类的元组，与内置 isinstance 函数的第二个参数相同。
-
-    Returns:
-        bool: 如果对象（或其底层模型）是指定类的实例，则返回 True，否则返回 False。
-    """
-    # 检查对象是否具有 'get_base_model' 方法，这是判断其是否为 PEFT 包装器的可靠方法
-    unwrapped_obj = obj.get_base_model() if hasattr(obj, "get_base_model") else obj
-    
-    # 在解包后的对象上调用内置的 isinstance 函数
-    return isinstance(unwrapped_obj, class_or_tuple)
 
 class CrossviewTemporalSD():
 
@@ -67,11 +42,11 @@ class CrossviewTemporalSD():
         do_classifier_free_guidance: bool = False
     ):
         level_count = 0
-        if custom_isinstance(clip_text, list) and len(parsed_shape) <= level:
+        if isinstance(clip_text, list) and len(parsed_shape) <= level:
             parsed_shape.append(0)
 
         if do_classifier_free_guidance:
-            if custom_isinstance(clip_text, str):
+            if isinstance(clip_text, str):
                 flattened_clip_text.append("")
                 level_count += 1
             else:
@@ -82,9 +57,9 @@ class CrossviewTemporalSD():
                     level_count += 1
 
         if level == 0 or not do_classifier_free_guidance:
-            if custom_isinstance(clip_text, str):
+            if isinstance(clip_text, str):
                 if text_condition_mask is None or (
-                        custom_isinstance(text_condition_mask, bool) and
+                        isinstance(text_condition_mask, bool) and
                         text_condition_mask):
                     flattened_clip_text.append(clip_text)
                 else:
@@ -98,12 +73,12 @@ class CrossviewTemporalSD():
                         i, flattened_clip_text, parsed_shape, level + 1,
                         None if text_condition_mask is None else (
                             text_condition_mask[i_id] if
-                            custom_isinstance(text_condition_mask, list) else
+                            isinstance(text_condition_mask, list) else
                             text_condition_mask),
                         False)
                     level_count += 1
 
-        if custom_isinstance(clip_text, list):
+        if isinstance(clip_text, list):
             parsed_shape[level] = level_count
 
     @staticmethod
@@ -187,9 +162,11 @@ class CrossviewTemporalSD():
         _3dbox_condition_mask=None, hdmap_condition_mask=None,
         action_condition_mask=None, explicit_view_modeling_mask=None,
         streaming_mode: bool = False, prev_ego_transforms=None,
-        do_classifier_free_guidance: bool = False
+        do_classifier_free_guidance: bool = False,
+        latents_shape=None,
     ):
-        batch_size, sequence_length, view_count = latent_shape[:3]
+        batch_size, _, view_count = latent_shape[:3]
+        sequence_length = batch["pts"].shape[1]
         if do_classifier_free_guidance:
             batch_size *= 2
 
@@ -200,13 +177,13 @@ class CrossviewTemporalSD():
         if text_encoder is not None:
             flattened_clip_text = []
             parsed_shape = []
-            CrossviewTemporalSD.flatten_clip_text( # 处理复杂的嵌套结构，添加文本掩膜
+            CrossviewTemporalSD.flatten_clip_text(
                 batch["clip_text"], flattened_clip_text, parsed_shape,
                 text_condition_mask=text_condition_mask,
                 do_classifier_free_guidance=do_classifier_free_guidance)
 
             pooled_text_embeddings = None
-            if custom_isinstance(model, diffusers.UNetSpatioTemporalConditionModel):
+            if isinstance(model, diffusers.UNetSpatioTemporalConditionModel):
                 text_inputs = tokenizer(
                     flattened_clip_text, padding="max_length",
                     max_length=tokenizer.model_max_length, truncation=True,
@@ -225,7 +202,7 @@ class CrossviewTemporalSD():
 
                 condition_embedding_list.append(text_embeddings)
 
-            elif custom_isinstance(model, diffusers.SD3Transformer2DModel):
+            elif isinstance(model, diffusers.SD3Transformer2DModel):
                 clip_text_embeddings_list = []
                 clip_pooled_text_embeddings_list = []
                 for clip_tokenizer, clip_text_encoder in zip(
@@ -470,10 +447,19 @@ class CrossviewTemporalSD():
         }
 
         if (
-            custom_isinstance(model, diffusers.SD3Transformer2DModel) and
+            isinstance(model, diffusers.SD3Transformer2DModel) and
             text_encoder is not None
         ):
             result["pooled_projections"] = pooled_text_embeddings
+
+        # for adopting temporal vae
+        if latents_shape is not None and latents_shape[1] != sequence_length:
+            pre = 1 if sequence_length % 2 == 1 else 0
+            stride = (sequence_length - pre)//(latents_shape[1] - pre)
+            for k in result:
+                if result[k] is not None and result[k].ndim > 1 and result[k].shape[1] == sequence_length:
+                    result[k] = torch.cat(
+                        [result[k][:, :pre], result[k][:, pre::stride]], dim=1)
 
         return result
 
@@ -633,7 +619,8 @@ class CrossviewTemporalSD():
     def try_make_input_for_prediction(
         noisy_input: torch.Tensor, latents, timesteps: torch.Tensor,
         training_config: dict, common_config: dict,
-        generator: torch.Generator = None
+        generator: torch.Generator = None,
+        reference_latent_count=None
     ):
         # for the reference frame augmentation
         rf_scale = (
@@ -707,29 +694,27 @@ class CrossviewTemporalSD():
                     generator=generator) < \
                 training_config.get("reference_visible_rate", 1.0)
 
-            reference_frame_count = training_config.get(
-                "reference_frame_count", 0)
-            if custom_isinstance(reference_frame_count, int):
-                reference_frame_count_tensor = reference_frame_count * \
+            if isinstance(reference_latent_count, int):
+                reference_latent_count_tensor = reference_latent_count * \
                     torch.ones((batch_size, 1, 1), dtype=torch.int32)
-            elif custom_isinstance(reference_frame_count, dict):
+            elif isinstance(reference_latent_count, dict):
                 count_list = torch.tensor(
-                    [int(i) for i in reference_frame_count.keys()],
+                    [int(i) for i in reference_latent_count.keys()],
                     dtype=torch.int32)
                 ratio_cumsum_list = torch.tensor(
-                    list(itertools.accumulate(reference_frame_count.values())))
+                    list(itertools.accumulate(reference_latent_count.values())))
                 ratio_indices = torch.searchsorted(
                     ratio_cumsum_list, torch.rand(
                         (batch_size, 1, 1), generator=generator))
-                reference_frame_count_tensor = count_list[ratio_indices]
+                reference_latent_count_tensor = count_list[ratio_indices]
             else:
                 raise Exception("Un implemented dynamic reference frame count")
 
-            reference_frame_count_indicator = torch\
+            reference_latent_count_indicator = torch\
                 .arange(sequence_length, dtype=torch.int32)\
                 .unsqueeze(0).unsqueeze(-1)\
                 .repeat(batch_size, 1, view_count) < \
-                reference_frame_count_tensor
+                reference_latent_count_tensor
             reference_frame_indicator = torch.logical_and(
                 torch.logical_and(
                     torch.logical_not(generation_task_indicator),
@@ -737,7 +722,7 @@ class CrossviewTemporalSD():
                         all_reference_visible_indicator,
                         partial_reference_indicator
                     )),
-                reference_frame_count_indicator)
+                reference_latent_count_indicator)
 
             made_noisy_input = torch.where(
                 reference_frame_indicator.view(*latents.shape[:3], 1, 1, 1)
@@ -762,7 +747,7 @@ class CrossviewTemporalSD():
         num_images_per_prompt: int = 1, device=None,
         joint_attention_dim: int = 4096,
     ):
-        prompt = [prompt] if custom_isinstance(prompt, str) else prompt
+        prompt = [prompt] if isinstance(prompt, str) else prompt
         batch_size = len(prompt)
 
         if text_encoder is None:
@@ -793,7 +778,7 @@ class CrossviewTemporalSD():
         text_encoder, tokenizer, common_config: dict, prompt: str, device,
         num_images_per_prompt: int = 1
     ):
-        prompt = [prompt] if custom_isinstance(prompt, str) else prompt
+        prompt = [prompt] if isinstance(prompt, str) else prompt
         batch_size = len(prompt)
 
         text_inputs = tokenizer(
@@ -877,11 +862,9 @@ class CrossviewTemporalSD():
         else:
             self.generator.seed()
 
-
-        # 1. 初始化基础模型
+        # load the diffusion model
         self.model_dtype = model_dtype or torch.float32
         self.model_wrapper = self.model = model.to(dtype=self.model_dtype)
-        
         self.model.enable_gradient_checkpointing()
         distribution_framework = self.common_config.get(
             "distribution_framework", "ddp")
@@ -899,13 +882,10 @@ class CrossviewTemporalSD():
                 if pattern.match(name) is not None:
                     module.to(self.device)
 
-        # (原 L.453 的 LoRA 应用逻辑已移动到下面)
-
-        # 2. 加载 Tokenizer, Text Encoder, VAE, Scheduler
-        # (L.460 - L.562)
+        # tokenizer & text encoder
         text_encoder_load_args = self.common_config.get(
             "text_encoder_load_args", {})
-        if custom_isinstance(self.model, diffusers.UNetSpatioTemporalConditionModel):
+        if isinstance(self.model, diffusers.UNetSpatioTemporalConditionModel):
             self.tokenizer = transformers.CLIPTokenizer.from_pretrained(
                 pretrained_model_name_or_path, subfolder="tokenizer")
             self.text_encoder = transformers.CLIPTextModel.from_pretrained(
@@ -913,7 +893,7 @@ class CrossviewTemporalSD():
                 **text_encoder_load_args)
             self.text_encoder.requires_grad_(False)
             self.text_encoder.to(self.device)
-        elif custom_isinstance(self.model, diffusers.SD3Transformer2DModel):
+        elif isinstance(self.model, diffusers.SD3Transformer2DModel):
             tokenizer = transformers.CLIPTokenizer.from_pretrained(
                 pretrained_model_name_or_path, subfolder="tokenizer")
             tokenizer_2 = transformers.CLIPTokenizer.from_pretrained(
@@ -970,15 +950,21 @@ class CrossviewTemporalSD():
             raise Exception("Unsupported diffusion model type.")
 
         # vae & image processor
-        self.vae = diffusers.AutoencoderKL.from_pretrained(
-            pretrained_model_name_or_path, subfolder="vae")
+        vae_type = dwm.common.get_class(
+            self.common_config.get("vae", "diffusers.AutoencoderKL"))
+        vae_pretrained_model_name_or_path = self.common_config.get(
+            "vae_pretrained_model_name_or_path", pretrained_model_name_or_path)
+        self.vae = vae_type.from_pretrained(
+            vae_pretrained_model_name_or_path, subfolder="vae")
         self.vae.requires_grad_(False)
         self.vae.to(self.device)
         self.image_processor = diffusers.image_processor.VaeImageProcessor(
             vae_scale_factor=2 ** (len(self.vae.config.block_out_channels) - 1))
+        self.is_temporal_vae = isinstance(
+            self.vae, diffusers.models.autoencoders.autoencoder_kl_cogvideox.AutoencoderKLCogVideoX)
 
         # scheduler
-        if custom_isinstance(self.model, diffusers.UNetSpatioTemporalConditionModel):
+        if isinstance(self.model, diffusers.UNetSpatioTemporalConditionModel):
             train_scheduler_type = dwm.common.get_class(
                 self.training_config.get("scheduler", "diffusers.DDPMScheduler"))
             self.train_scheduler = train_scheduler_type.from_pretrained(
@@ -988,7 +974,7 @@ class CrossviewTemporalSD():
                     "scheduler", "diffusers.DDIMScheduler"))
             self.test_scheduler = test_scheduler_type.from_pretrained(
                 pretrained_model_name_or_path, subfolder="scheduler")
-        elif custom_isinstance(self.model, diffusers.SD3Transformer2DModel):
+        elif isinstance(self.model, diffusers.SD3Transformer2DModel):
             self.train_scheduler =\
                 diffusers.FlowMatchEulerDiscreteScheduler.from_pretrained(
                     pretrained_model_name_or_path, subfolder="scheduler")
@@ -998,105 +984,38 @@ class CrossviewTemporalSD():
             self.test_scheduler = test_scheduler_type.from_pretrained(
                 pretrained_model_name_or_path, subfolder="scheduler")
 
-        # --- 3. 加载权重 (新逻辑) ---
-        has_lora = config.get("lora_config", None) is not None
-        base_model_state_dict = None
-        lora_state_to_load = None
-
+        # load_state
         if resume_from is not None:
-            # 场景 A: Resume (恢复训练)
-            if has_lora:
-                # 场景 A1: Resume LoRA 训练
-                # 必须从 model_checkpoint_path 加载基础模型
-                if model_checkpoint_path is None:
-                    raise ValueError(
-                        "Resuming LoRA training requires 'model_checkpoint_path' to be set.")
-                
-                if self.should_save: print(f"Loading base model from: {model_checkpoint_path}")
-                base_model_state_dict = CrossviewTemporalSD.load_state(
-                    model_checkpoint_path)
-
-                # 从 lora/ 文件夹加载 LoRA 权重
-                lora_path = os.path.join(
-                    output_path, "lora", f"{resume_from}.pth")
-                if os.path.exists(lora_path):
-                    if self.should_save: print(f"Resuming LoRA weights from: {lora_path}")
-                    lora_state_to_load = CrossviewTemporalSD.load_state(lora_path)
-                else:
-                    if self.should_save: print(f"Warning: Resuming LoRA, but {lora_path} not found.")
-
-            else:
-                # 场景 A2: Resume 完整模型训练
-                # 从 checkpoints/ 文件夹加载完整权重
-                full_model_path = os.path.join(
-                    output_path, "checkpoints", f"{resume_from}.pth")
-                if self.should_save: print(f"Resuming full model from: {full_model_path}")
-                base_model_state_dict = CrossviewTemporalSD.load_state(
-                    full_model_path)
-
+            state_dict = CrossviewTemporalSD.load_state(
+                os.path.join(
+                    output_path, "checkpoints", "{}.pth".format(resume_from)))
+            self.model.load_state_dict(state_dict)
         elif model_checkpoint_path is not None:
-            # 场景 B: Start Fresh (非 Resume, 仅加载预训练权重)
-            if self.should_save: print(f"Loading base model from: {model_checkpoint_path}")
-            base_model_state_dict = CrossviewTemporalSD.load_state(
-                model_checkpoint_path)
+            state_dict = CrossviewTemporalSD.load_state(model_checkpoint_path)
 
-            if has_lora and config.get("model_lora_path", None) is not None:
-                # 场景 B1: 加载一个外部的 LoRA 权重
-                lora_path = config["model_lora_path"]
-                if self.should_save: print(f"Loading pretrained LoRA weights from: {lora_path}")
-                lora_state_to_load = CrossviewTemporalSD.load_state(lora_path)
-
-        # --- 4. 应用基础模型权重 ---
-        if base_model_state_dict is not None:
-            # SVD 权重转换 (如果需要)
-            if custom_isinstance(
+            # Our CTSD 2.1 model definition is based on SVD, when initializing
+            # from SD 2.1 weights, some keys need to be renamed.
+            if isinstance(
                 self.model, diffusers.UNetSpatioTemporalConditionModel
             ):
-                base_model_state_dict = dwm.models.crossview_temporal_unet\
+                state_dict = dwm.models.crossview_temporal_unet\
                     .UNetCrossviewTemporalConditionModel\
-                    .try_to_convert_state_dict(base_model_state_dict)
+                    .try_to_convert_state_dict(state_dict)
 
             missing_keys, unexpected_keys = self.model.load_state_dict(
-                base_model_state_dict, **model_load_state_args)
-            
+                state_dict, **model_load_state_args)
             if (
                 self.should_save and
                 self.common_config.get("print_load_state_info", False)
-            ):  # NOTE
-                print(f"Base model load: {len(missing_keys)} missing, "
-                      f"{len(unexpected_keys)} unexpected keys.")
+            ):
+                print(f"missing keys: {missing_keys}")
+                print(f"unexpected keys: {unexpected_keys}")
 
-        # --- 5. 应用 LoRA (在基础模型加载后) ---
-        if has_lora:
-            if self.should_save: print("Applying LoRA config...")
-            lora_config = dwm.common.create_instance_from_config(config['lora_config'])
-            assert isinstance(lora_config, LoraConfig)
-            # NOTE `target_modules` are in
-            # from diffusers.models.attention_processor import Attention
-            self.model = get_peft_model(self.model, lora_config)
-            self.model.print_trainable_parameters()
-            self.model.to(self.device)
-
-            if lora_state_to_load is not None:
-                # 加载 Resume 或 预训练 的 LoRA 权重
-                if self.should_save: print("Loading LoRA weights into model...")
-                missing, unexpected = self.model.load_state_dict(
-                    lora_state_to_load, strict=False)  # 必须是非严格模式
-                if self.should_save:
-                    print(f"LoRA load: {len(missing)} missing, "
-                          f"{len(unexpected)} unexpected keys.")
-            elif self.should_save:
-                print("Initialized new LoRA weights for training.")
-        
-        # --- 6. 冻结模块 ---
         if "freezing_pattern" in training_config:
             pattern = re.compile(training_config["freezing_pattern"])
             frozen_module_count = 0
             for name, module in self.model.named_modules():
                 if pattern.match(name) is not None:
-                    # if "lora" in name:  # NOTE
-                    if isinstance(module, LoraLayer):
-                        continue
                     module.requires_grad_(False)
                     frozen_module_count += 1
                     if self.should_save:
@@ -1112,7 +1031,7 @@ class CrossviewTemporalSD():
             print(
                 "{:.1f} M parameters are trainable.".format(param_count / 1e6))
 
-        # --- 7. 设置训练组件 (GradScaler, DDP/FSDP Wrapper) ---
+        # setup training parts
         self.loss_report_list = []
         self.step_duration = 0
 
@@ -1152,16 +1071,6 @@ class CrossviewTemporalSD():
                             .format([i[0] for i in ignored_named_modules]))
                 else:
                     ignored_modules = None
-                
-                if config.get("lora_config", None):
-                    # lora_modedules = [name for name, _ in self.model.named_modules() if "lora" in name]
-                    lora_modules = [module for name, module in self.model.named_modules() if "lora" in name] # fix
-                    if lora_modules == []:
-                        pass
-                    if ignored_modules == None:
-                        ignored_modules = lora_modules
-                    else:
-                        ignored_modules.extend(lora_modules)
 
                 self.model_wrapper = FSDP(
                     self.model, device_id=torch.cuda.current_device(),
@@ -1176,22 +1085,12 @@ class CrossviewTemporalSD():
             self.summary = torch.utils.tensorboard.SummaryWriter(
                 os.path.join(output_path, "log"))
 
-        # --- 8. 优化器和 LR Scheduler ---
-        if config.get('lora_config',None):
-            params_to_optimize = [p for p in self.model_wrapper.parameters() if p.requires_grad]
-            self.optimizer = dwm.common.create_instance_from_config(
-                config["optimizer"],
-                params=params_to_optimize
-            ) if "optimizer" in config else None
-        else:
-            self.optimizer = dwm.common.create_instance_from_config(
-                config["optimizer"],
-                params=self.model_wrapper.parameters()
-            ) if "optimizer" in config else None
+        self.optimizer = dwm.common.create_instance_from_config(
+            config["optimizer"],
+            params=self.model_wrapper.parameters()
+        ) if "optimizer" in config else None
 
-        # 9. 加载优化器状态 (必须在优化器初始化和 FSDP 包装之后)
         if resume_from is not None:
-            if self.should_save: print(f"Loading optimizer state for step: {resume_from}")
             dwm.distributed.distributed_load_optimizer_state(
                 self.model_wrapper, self.optimizer,
                 os.path.join(output_path, "optimizer"), str(resume_from))
@@ -1211,87 +1110,54 @@ class CrossviewTemporalSD():
 
         return loss_coef
 
+    def get_latent_sequence_length(self, sequence_length):
+        pre = self.inference_config.get("vae_pre", 0)
+        stride = self.inference_config.get("vae_stride", 1)
+        assert sequence_length % stride == pre or sequence_length == 0, \
+            f"{sequence_length} vs {pre} vs {stride}"
+        return (sequence_length-pre)//stride + (1 if pre > 0 else 0)
+
+    def get_reference_latent_count(self):
+        reference_frame_count = self.training_config.get(
+            "reference_frame_count", 0)
+        if isinstance(reference_frame_count, int):
+            reference_latent_count = self.get_latent_sequence_length(
+                reference_frame_count)
+        elif isinstance(reference_frame_count, dict):
+            reference_latent_count = {
+                str(self.get_latent_sequence_length(int(k))): v
+                for k, v in reference_frame_count.items()}
+        else:
+            raise Exception("Un implemented dynamic reference frame count")
+        return reference_latent_count
+
     def save_checkpoint(self, output_path: str, steps: int):
-        torch.cuda.empty_cache()
-
-        is_lora = self.config.get("lora_config", None) is not None
-        model_state_to_save = None
-        save_path = None
-
-        # --- [核心修复] 配置 FSDP 状态字典的保存策略 ---
-        # 确保完整模型只在 Rank 0 的 CPU 上聚合，避免其他 Rank OOM
-        save_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-        
-        # 使用上下文管理器收集状态字典 (自动去除 FSDP 命名及前缀)
-        if torch.distributed.is_initialized() and isinstance(self.model_wrapper, FSDP):
-            with FSDP.state_dict_type(self.model_wrapper, StateDictType.FULL_STATE_DICT, save_policy):
-                full_model_state_dict = self.model_wrapper.state_dict()
-        else:
-            # 单卡模式
-            full_model_state_dict = self.model.state_dict()
-
-        # --- 场景 A & B 处理逻辑 ---
-        if is_lora:
-            if self.should_save: print(f"Saving LoRA state checkpoint at step {steps}...")
-            
-            if self.should_save: # 仅 Rank 0
-                model_state_to_save = get_peft_model_state_dict(
-                    self.model_wrapper,
-                    state_dict=full_model_state_dict 
-                )
-                save_dir = os.path.join(output_path, "lora")
-                os.makedirs(save_dir, exist_ok=True)
-                save_path = os.path.join(save_dir, f"{steps}.pth")
-                
-        else:
-            if self.should_save: print(f"Saving full model state checkpoint at step {steps}...")
-            
-            if self.should_save: # 仅 Rank 0
-                model_state_to_save = full_model_state_dict
-                save_dir = os.path.join(output_path, "checkpoints")
-                os.makedirs(save_dir, exist_ok=True)
-                save_path = os.path.join(save_dir, f"{steps}.pth")
-
-        # --- [核心修复] 及时清理非 Rank 0 进程的内存 ---
-        if not self.should_save:
-            del full_model_state_dict
-            model_state_to_save = None
-
         if torch.distributed.is_initialized():
-            torch.distributed.barrier()
+            # model is fully saved by rank0 for compatibility
+            options = torch.distributed.checkpoint.state_dict.StateDictOptions(
+                full_state_dict=True, cpu_offload=True)
+            model_state_dict = torch.distributed.checkpoint.state_dict\
+                .get_model_state_dict(self.model_wrapper, options=options)
 
-        # --- 保存模型文件 ---
-        if self.should_save and model_state_to_save is not None:
-            torch.save(model_state_to_save, save_path)
-            print(f"Model saved to {save_path}")
-            
-            # Rank 0 保存完毕后也释放内存
-            del model_state_to_save
-            del full_model_state_dict
+        elif self.should_save:
+            model_state_dict = self.model.state_dict()
 
-        if torch.distributed.is_initialized():
-            torch.distributed.barrier()
-        
-        # --- 保存优化器状态 ---
-        optimizer_dir = os.path.join(output_path, "optimizer")
+        os.makedirs(os.path.join(output_path, "checkpoints"), exist_ok=True)
+        os.makedirs(os.path.join(output_path, "optimizer"), exist_ok=True)
         if self.should_save:
-            os.makedirs(optimizer_dir, exist_ok=True)
-            
-        if torch.distributed.is_initialized():
-            torch.distributed.barrier()
+            torch.save(
+                model_state_dict,
+                os.path.join(
+                    output_path, "checkpoints", "{}.pth".format(steps)))
 
-        if self.should_save: print(f"Saving optimizer state at step {steps}...")
-        
-        # 你的分布式优化器保存逻辑
         dwm.distributed.distributed_save_optimizer_state(
             self.model_wrapper, self.optimizer,
-            optimizer_dir, str(steps)
-        )
+            os.path.join(output_path, "optimizer"), str(steps))
 
     def log(self, global_step: int, log_steps: int):
         if self.should_save:
             if len(self.loss_report_list) > 0 and \
-                    custom_isinstance(self.loss_report_list[0], dict):
+                    isinstance(self.loss_report_list[0], dict):
                 loss_values = {
                     i: sum([j[i] for j in self.loss_report_list]) /
                     len(self.loss_report_list)
@@ -1336,6 +1202,12 @@ class CrossviewTemporalSD():
             batch["vae_images"].flatten(0, 2).to(self.device))
 
         # prepare the training target
+        # use different shape for 3D and 2D vae
+        if self.is_temporal_vae:
+            image_tensor = einops.rearrange(
+                image_tensor, "(b t v) c h w -> (b v) c t h w",
+                t=sequence_length, v=view_count)
+
         shift_factor = self.vae.config.shift_factor\
             if self.vae.config.shift_factor is not None else 0
         latents = dwm.functional.memory_efficient_split_call(
@@ -1344,7 +1216,16 @@ class CrossviewTemporalSD():
                 block.encode(tensor).latent_dist.sample() - shift_factor
             ) * block.config.scaling_factor,
             self.common_config.get("memory_efficient_batch", -1))
-        latents = latents.unflatten(0, batch["vae_images"].shape[:3])
+
+        if self.is_temporal_vae:
+            latents = einops.rearrange(
+                latents, "(b v) c t h w -> b t v c h w", v=view_count)
+        else:
+            latents = einops.rearrange(
+                latents, "(b t v) c h w -> b t v c h w",
+                t=sequence_length, v=view_count)
+
+        # latents = latents.unflatten(0, batch["vae_images"].shape[:3])
         noise = torch.randn(
             latents.shape, generator=self.generator).to(self.device)
 
@@ -1356,7 +1237,7 @@ class CrossviewTemporalSD():
         else:
             timestep_shape_range = 1
 
-        if custom_isinstance(self.model, diffusers.UNetSpatioTemporalConditionModel):
+        if isinstance(self.model, diffusers.UNetSpatioTemporalConditionModel):
             timesteps = torch.randint(
                 0, self.train_scheduler.config.num_train_timesteps,
                 latents.shape[:timestep_shape_range], generator=self.generator
@@ -1371,7 +1252,7 @@ class CrossviewTemporalSD():
             else:
                 raise Exception("Unknown training target of the UNet.")
 
-        elif custom_isinstance(self.model, diffusers.SD3Transformer2DModel):
+        elif isinstance(self.model, diffusers.SD3Transformer2DModel):
             u = CrossviewTemporalSD.sd3_compute_density_for_timestep_sampling(
                 weighting_scheme=self.training_config
                 .get("weighting_scheme", "logit_normal"),
@@ -1424,22 +1305,47 @@ class CrossviewTemporalSD():
             model_conditions = CrossviewTemporalSD.get_conditions(
                 self.model,
                 self.text_encoders
-                if custom_isinstance(self.model, diffusers.SD3Transformer2DModel)
+                if isinstance(self.model, diffusers.SD3Transformer2DModel)
                 else self.text_encoder,
                 self.tokenizers
-                if custom_isinstance(self.model, diffusers.SD3Transformer2DModel)
+                if isinstance(self.model, diffusers.SD3Transformer2DModel)
                 else self.tokenizer,
                 self.common_config, batch["vae_images"].shape, batch,
                 self.device, self.model_dtype, text_condition_mask,
                 _3dbox_condition_mask, hdmap_condition_mask,
-                action_condition_mask, explicit_view_modeling_mask)
+                action_condition_mask, explicit_view_modeling_mask,
+                latents_shape=latents.shape)
+
+            reference_latent_count = self.get_reference_latent_count()
+            if self.training_config.get("extra_reference_infer", 0) > 0:
+                # NOTE: infer temporal vae with only reference frames
+                # This setting is more aligned with inference stage
+                extra_image_tensor = image_tensor[
+                    :, :, :self.training_config.get("extra_reference_infer", 0)]
+                extra_latents = dwm.functional.memory_efficient_split_call(
+                    self.vae, extra_image_tensor,
+                    lambda block, tensor: (
+                        block.encode(tensor).latent_dist.sample() -
+                        shift_factor
+                    ) * block.config.scaling_factor,
+                    self.common_config.get("memory_efficient_batch", -1))
+                if self.is_temporal_vae:
+                    extra_latents = einops.rearrange(
+                        extra_latents, "(b v) c t h w -> b t v c h w", v=view_count)
+                else:
+                    raise Exception("Not support now.")
+                latents_for_prediction = torch.cat(
+                    [extra_latents, latents[:, extra_latents.shape[1]:]], dim=1)
+            else:
+                latents_for_prediction = latents
 
             noisy_latents, timesteps, additional_conditions, \
                 reference_frame_indicator = \
                 CrossviewTemporalSD.try_make_input_for_prediction(
-                    noisy_latents, latents, timesteps,
+                    noisy_latents, latents_for_prediction, timesteps,
                     self.training_config, self.common_config,
-                    generator=self.generator)
+                    generator=self.generator,
+                    reference_latent_count=reference_latent_count)
             if additional_conditions is not None:
                 model_conditions.update(additional_conditions)
             if getattr(self.model_wrapper, "mask_module", None) is not None:
@@ -1450,7 +1356,7 @@ class CrossviewTemporalSD():
                 noisy_latents, timesteps, **model_conditions)
 
             sd_pred_latent = sd_pred[0] * (-sigmas) + noisy_latents \
-                if custom_isinstance(self.model, diffusers.SD3Transformer2DModel) \
+                if isinstance(self.model, diffusers.SD3Transformer2DModel) \
                 else sd_pred[0]
 
             if self.training_config.get("disable_reference_frame_loss", False):
@@ -1568,18 +1474,19 @@ class CrossviewTemporalSD():
             latents = torch\
                 .randn(latent_shape, generator=self.generator).to(self.device) * \
                 getattr(self.test_scheduler, "init_noise_sigma", 1)
-        # 这里的图像条件通过网络下采样同时增加深度才给模型
+
         model_conditions = CrossviewTemporalSD.get_conditions(
             self.model,
             self.text_encoders
-            if custom_isinstance(self.model, diffusers.SD3Transformer2DModel)
+            if isinstance(self.model, diffusers.SD3Transformer2DModel)
             else self.text_encoder,
             self.tokenizers
-            if custom_isinstance(self.model, diffusers.SD3Transformer2DModel)
+            if isinstance(self.model, diffusers.SD3Transformer2DModel)
             else self.tokenizer,
             self.common_config, latent_shape, batch, self.device,
             self.model_dtype,
-            do_classifier_free_guidance=do_classifier_free_guidance)
+            do_classifier_free_guidance=do_classifier_free_guidance,
+            latents_shape=latents.shape)
         result = {}
         stop_timestep = (
             self.inference_config["inference_steps"]
@@ -1632,7 +1539,7 @@ class CrossviewTemporalSD():
                 timesteps_input = torch.cat([timesteps, timesteps])
             else:
                 timesteps_input = timesteps
-            
+
             with self.get_autocast_context():
                 model_output, _, _ = self.model_wrapper(
                     latent_model_input, timesteps_input, **model_conditions)
@@ -1696,18 +1603,44 @@ class CrossviewTemporalSD():
                     .flatten(-4, -2))
 
         if diffusion_forcing_mode:
+            # NOTE if is_temporal_vae, the tranport of different duration is not straightforward
+            # which mean: for time-window_pos, [0-0, 1-1, 2-2] --(out 0-0)--> [1-0, 2-1, 3-2] is required
+            # this coming from that temporal vae is not position independent
+            cur_latents = latents[:, take_time].flatten(
+                0, 1).to(dtype=self.vae.dtype)
+            if self.is_temporal_vae:
+                view_count = latents.shape[2]
+                cur_latents = torch.cat(
+                    [cur_latents[:, :, None], cur_latents[:, :, None]*0], dim=2)
             image_tensor = self.vae.decode(
-                latents[:, take_time].flatten(0, 1).to(dtype=self.vae.dtype) /
-                self.vae.config.scaling_factor + shift_factor,
+                cur_latents / self.vae.config.scaling_factor + shift_factor,
                 return_dict=False)[0]
+            if self.is_temporal_vae:
+                image_tensor = image_tensor.chunk(2, dim=2)[0]
+                image_tensor = einops.rearrange(
+                    image_tensor, "(b v) c t h w -> (b t v) c h w", v=view_count)
         else:
+            if image_latents is not None:
+                latents = torch.cat([
+                    image_latents[:, :reference_frame_count],
+                    latents[:, reference_frame_count:]
+                ], 1)
+            if self.is_temporal_vae:
+                view_count = latents.shape[2]
+                cur_latents = einops.rearrange(
+                    latents, "b t v c h w -> (b v) c t h w")
+            else:
+                cur_latents = latents.flatten(0, 2)
             image_tensor = dwm.functional.memory_efficient_split_call(
-                self.vae, latents.flatten(0, 2).to(dtype=self.vae.dtype),
+                self.vae, cur_latents.to(dtype=self.vae.dtype),
                 lambda block, tensor: block.decode(
                     tensor / block.config.scaling_factor + shift_factor,
                     return_dict=False
                 )[0],
                 self.common_config.get("memory_efficient_batch", -1))
+            if self.is_temporal_vae:
+                image_tensor = einops.rearrange(
+                    image_tensor, "(b v) c t h w -> (b t v) c h w", v=view_count)
 
         result = {
             "images": self.image_processor.postprocess(
@@ -1727,7 +1660,7 @@ class CrossviewTemporalSD():
         diffusion_forcing_mode = (
             "frame_prediction_style" in self.common_config and
             self.common_config["frame_prediction_style"] == "diffusion_forcing"
-        )  # false
+        )
         if diffusion_forcing_mode:
             assert total_frame_count > \
                 self.inference_config["sequence_length_per_iteration"]
@@ -1749,19 +1682,27 @@ class CrossviewTemporalSD():
                 raw_image_tensor.flatten(0, 2).to(self.device))
             shift_factor = self.vae.config.shift_factor \
                 if self.vae.config.shift_factor is not None else 0
+            # use different shape for 3D and 2D vae
+            if self.is_temporal_vae:
+                image_tensor = einops.rearrange(image_tensor, "(b t v) c h w -> (b v) c t h w",
+                                                t=raw_image_tensor.shape[1], v=raw_image_tensor.shape[2])
             image_latents = dwm.functional.memory_efficient_split_call(
                 self.vae, image_tensor,
                 lambda block, tensor: (
                     block.encode(tensor).latent_dist.mode() - shift_factor
                 ) * block.config.scaling_factor,
                 self.common_config.get("memory_efficient_batch", -1))
-            image_latents = image_latents.unflatten(
-                0, raw_image_tensor.shape[:3])
+            if self.is_temporal_vae:
+                image_latents = einops.rearrange(
+                    image_latents, "(b v) c t h w -> b t v c h w", v=raw_image_tensor.shape[2])
+            else:
+                image_latents = image_latents.unflatten(
+                    0, raw_image_tensor.shape[:3])
 
         result = {
             "images": []
         }
-        iteration_sequence_length = latent_shape[1]
+        iteration_sequence_length = self.inference_config["sequence_length_per_iteration"]
         exception_for_take_sequence = self.inference_config.get(
             "autoregression_data_exception_for_take_sequence", [])
         if diffusion_forcing_mode:
@@ -1816,7 +1757,11 @@ class CrossviewTemporalSD():
                         queue_head * steps_per_inference
                     ),
                     take_time=queue_head)
-                result["images"].append(iteration_output["images"])
+                if self.is_temporal_vae and i == 0:
+                    result["images"].append(
+                        iteration_output["images"].chunk(4)[-1])
+                else:
+                    result["images"].append(iteration_output["images"])
                 is_finished = torch.tensor(
                     [j <= queue_head for j in range(latent_shape[1])],
                     device=self.device
@@ -1840,7 +1785,8 @@ class CrossviewTemporalSD():
             else:
                 iteration_output = self.inference_pipeline(
                     latent_shape, iteration_batch, output_type, image_latents,
-                    reference_frame_count=this_ref_frame_count)
+                    reference_frame_count=self.get_latent_sequence_length(
+                        this_ref_frame_count))
                 result["images"].append(
                     iteration_output["images"]
                     [latent_shape[0] * this_ref_frame_count * latent_shape[2]:])
@@ -1848,11 +1794,14 @@ class CrossviewTemporalSD():
                     i + iteration_sequence_length - reference_frame_count <
                     total_frame_count - iteration_sequence_length + 1
                 ):
+                    reference_latent_count = self.get_latent_sequence_length(
+                        reference_frame_count)
                     image_latents = iteration_output["latents"][
-                        :, -reference_frame_count:
+                        :, -reference_latent_count:
                     ]
-        # flushing the tailing frames by reusing the last iteration_batch
+
         if diffusion_forcing_mode:
+            # flushing the tailing frames by reusing the last iteration_batch
             for i in range(queue_head + 1, latent_shape[1]):
                 stop_timestep = (
                     self.inference_config["inference_steps"] +
@@ -1877,28 +1826,6 @@ class CrossviewTemporalSD():
                 ).unflatten(0, (1, -1, 1, 1, 1, 1))
                 image_latents = torch.where(
                     is_finished, image_latents, iteration_output["latents"])
-        else:
-            generated_frames = int(sum([len(iter_images) for iter_images in result["images"]])/latent_shape[2])
-            remaining_frames = total_frame_count - generated_frames
-            last_reference_frame_count = iteration_sequence_length - remaining_frames
-            if remaining_frames > 0:
-                start_index = max(0, total_frame_count-iteration_sequence_length)
-                last_iteration_batch = {
-                    k: (
-                        v
-                        if k in exception_for_take_sequence
-                        else dwm.functional.take_sequence_clip(
-                            v, start_index, start_index + iteration_sequence_length)
-                    )
-                    for k, v in batch.items()
-                }
-                last_image_latents = iteration_output["latents"][:, -last_reference_frame_count:]
-                iteration_output = self.inference_pipeline(
-                    latent_shape, last_iteration_batch, output_type, last_image_latents,
-                    reference_frame_count=last_reference_frame_count)
-
-                result["images"].append(iteration_output['images']
-                [latent_shape[0] * last_reference_frame_count * latent_shape[2]:])
 
         if output_type == "pt":
             result["images"] = torch.cat(result["images"])
@@ -1917,7 +1844,8 @@ class CrossviewTemporalSD():
         if "sequence_length_per_iteration" in self.inference_config:
             latent_shape = (
                 batch_size,
-                self.inference_config["sequence_length_per_iteration"],
+                self.get_latent_sequence_length(
+                    self.inference_config["sequence_length_per_iteration"]),
                 view_count, self.vae.config.latent_channels, latent_height,
                 latent_width
             )
@@ -1925,7 +1853,8 @@ class CrossviewTemporalSD():
                 latent_shape, batch, "pt")
         else:
             latent_shape = (
-                batch_size, sequence_length, view_count,
+                batch_size, self.get_latent_sequence_length(
+                    sequence_length), view_count,
                 self.vae.config.latent_channels, latent_height,
                 latent_width
             )
@@ -1965,9 +1894,6 @@ class CrossviewTemporalSD():
                     output_path, "preview_depth", "{}.mp4".format(filename))
                 dwm.utils.preview.save_tensor_to_video(
                     video_output_path, "libx264", 5, pipeline_output["depth"])
-        # 增加等待
-        if torch.distributed.is_initialized():
-            torch.distributed.barrier()
 
     @torch.no_grad()
     def evaluate_pipeline(
@@ -1999,7 +1925,8 @@ class CrossviewTemporalSD():
             if "sequence_length_per_iteration" in self.inference_config:
                 latent_shape = (
                     batch_size,
-                    self.inference_config["sequence_length_per_iteration"],
+                    self.get_latent_sequence_length(
+                        self.inference_config["sequence_length_per_iteration"]),
                     view_count, self.vae.config.latent_channels, latent_height,
                     latent_width
                 )
@@ -2007,7 +1934,8 @@ class CrossviewTemporalSD():
                     latent_shape, batch, "pt")
             else:
                 latent_shape = (
-                    batch_size, sequence_length, view_count,
+                    batch_size, self.get_latent_sequence_length(
+                        sequence_length), sequence_length, view_count,
                     self.vae.config.latent_channels, latent_height,
                     latent_width
                 )
@@ -2210,7 +2138,7 @@ class StreamingCrossviewTemporalSD(CrossviewTemporalSD):
                 self.model,
                 self.text_encoders if self.text_prompt_counter == 0 else None,
                 self.tokenizers
-                if custom_isinstance(self.model, diffusers.SD3Transformer2DModel)
+                if isinstance(self.model, diffusers.SD3Transformer2DModel)
                 else self.tokenizer,
                 self.common_config,
                 (self.latent_shape[0], 1) + self.latent_shape[2:],

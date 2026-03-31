@@ -9,28 +9,28 @@
             "_class_name": "dwm.fs.czip.CombinedZipFileSystem",
             "fs": {
                 "_class_name": "dwm.fs.dirfs.DirFileSystem",
-                "path": "/media/data2/sumq/nuscenes-zip/"
+                "path": "/workspace"
             },
             "paths": [
-                "interp_12Hz_trainval.zip",
-                "v1.0-trainval01_blobs.zip",
-                "v1.0-trainval02_blobs.zip",
-                "v1.0-trainval03_blobs.zip",
-                "v1.0-trainval04_blobs.zip",
-                "v1.0-trainval05_blobs.zip",
-                "v1.0-trainval06_blobs.zip",
-                "v1.0-trainval07_blobs.zip",
-                "v1.0-trainval08_blobs.zip",
-                "v1.0-trainval09_blobs.zip",
-                "v1.0-trainval10_blobs.zip",
-                "nuScenes-map-expansion-v1.3.zip"
+                "public/dataset/nuscenes/interp_12Hz_trainval.zip",
+                "public/dataset/nuscenes/v1.0-trainval01_blobs.zip",
+                "public/dataset/nuscenes/v1.0-trainval02_blobs.zip",
+                "public/dataset/nuscenes/v1.0-trainval03_blobs.zip",
+                "public/dataset/nuscenes/v1.0-trainval04_blobs.zip",
+                "public/dataset/nuscenes/v1.0-trainval05_blobs.zip",
+                "public/dataset/nuscenes/v1.0-trainval06_blobs.zip",
+                "public/dataset/nuscenes/v1.0-trainval07_blobs.zip",
+                "public/dataset/nuscenes/v1.0-trainval08_blobs.zip",
+                "public/dataset/nuscenes/v1.0-trainval09_blobs.zip",
+                "public/dataset/nuscenes/v1.0-trainval10_blobs.zip",
+                "public/dataset/nuscenes/nuScenes-map-expansion-v1.3.zip"
             ]
         },
         "device_mesh": {
             "_class_name": "torch.distributed.device_mesh.init_device_mesh",
             "device_type": "cuda",
             "mesh_shape": [
-                7,
+                1,
                 1
             ]
         }
@@ -43,14 +43,22 @@
             0.975
         ]
     },
+    "lora_config":{
+        "_class_name": "peft.LoraConfig",
+        "r": 16,
+        "lora_alpha": 32,
+        "lora_dropout": 0,
+        "target_modules": ["to_q", "to_k", "to_v", "to_out.0", "add_q_proj", "add_k_proj", "add_v_proj", "to_add_out"],
+        "task_type": "CAUSAL_LM"
+    },
     "pipeline": {
         "_class_name": "dwm.pipelines.ctsd.CrossviewTemporalSD",
         "common_config": {
+            "print_load_state_info": true,
             "frame_prediction_style": "ctsd",
-            "___cat_condition": true,
+            "cat_condition": true,
             "cond_with_action": false,
             "condition_on_all_frames": true,
-            "uncondition_image_color": 0.1255,
             "added_time_ids": "fps_camera_transforms",
             "camera_intrinsic_embedding_indices": [
                 0,
@@ -151,10 +159,9 @@
             "sequence_length_per_iteration": 19,
             "reference_frame_count": 3,
             "autoregression_data_exception_for_take_sequence": [
-                "crossview_mask",
-                "scene"
+                "crossview_mask"
             ],
-            "evaluation_item_count": 144
+            "delete_evaluation_item_count": 144
         },
         "model": {
             "_class_name": "dwm.models.crossview_temporal_dit.DiTCrossviewTemporalConditionModel",
@@ -200,7 +207,7 @@
             ],
             "crossview_gradient_checkpointing": true,
             "enable_temporal": true,
-            "temporal_attention_type": "pointwise",
+            "temporal_attention_type": "rowwise",
             "temporal_block_layers": [
                 2,
                 3,
@@ -241,8 +248,8 @@
                 "use_zero_convs": true
             }
         },
-        "pretrained_model_name_or_path": "/media/data4/sumq/stabilityai/stable-diffusion-3.5-medium",
-        "model_checkpoint_path": "/media/data4/sumq/opendwm/ckpt/ctsd_35_tirda_bm_nwao_40k.pth",
+        "pretrained_model_name_or_path": "stabilityai/stable-diffusion-3.5-medium",
+        "model_checkpoint_path": "/workspace/public/weights/opendwm_weights/ctsd_35_tirda_bm_nwao_40k.pth",
         "model_load_state_args": {
             "strict": false
         },
@@ -253,7 +260,7 @@
             },
             "fvd": {
                 "_class_name": "dwm.metrics.fvd.FrechetVideoDistance",
-                "inception_3d_checkpoint_path": "/media/data4/sumq/opendwm/OpenDWM/externals/TATS/tats/fvd/i3d_pretrained_400.pt",
+                "inception_3d_checkpoint_path": "/workspace/hucs/opendwm/externals/TATS/tats/fvd/i3d_pretrained_400.pt",
                 "sequence_count": 16
             }
         }
@@ -463,12 +470,13 @@
                 "key": "nuscenes_fs"
             },
             "dataset_name": "interp_12Hz_trainval",
-            "split": "val",
-            "sequence_length": 35,
+            "split": "filter",
+            "filter_scenes":["scene-0627"],
+            "sequence_length": 36,
             "fps_stride_tuples": [
                 [
-                    10,
-                    20
+                    12,
+                    3
                 ]
             ],
             "sensor_channels": [
@@ -545,8 +553,8 @@
             },
             "hdmap_image_settings": {},
             "image_description_settings": {
-                "path": "/media/data4/sumq/opendwm/opendwm-data/nuscenes_v1.0-trainval_caption_v2/nuscenes_v1.0-trainval_caption_v2_val.json",
-                "time_list_dict_path": "/media/data4/sumq/opendwm/opendwm-data/nuscenes_v1.0-trainval_caption_v2/nuscenes_v1.0-trainval_caption_v2_times_val.json",
+                "path": "/workspace/public/dataset/nuscenes/nuscenes_v1.0-trainval_caption_v2_val.json",
+                "time_list_dict_path": "/workspace/public/dataset/nuscenes/nuscenes_v1.0-trainval_caption_v2_times_val.json",
                 "align_keys": [
                     "time",
                     "weather"
@@ -657,7 +665,6 @@
     "validation_dataloader": {
         "batch_size": 1,
         "num_workers": 1,
-        "prefetch_factor": 3,
         "collate_fn": {
             "_class_name": "dwm.datasets.common.CollateFnIgnoring",
             "keys": [

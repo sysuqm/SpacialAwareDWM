@@ -17,16 +17,16 @@ def create_parser():
         "-o", "--output-path", type=str, default=None,
         help="The path to save checkpoint files.")
     parser.add_argument(
-        "--log-steps", default=100, type=int,
+        "--log-steps", default=100, type=int,  # NOTE 100
         help="The step count to print log and update the tensorboard.")
     parser.add_argument(
-        "--preview-steps", default=400, type=int,
+        "--preview-steps", default=10000, type=int,  # NOTE 400
         help="The step count to preview the pipeline result.")
     parser.add_argument(
-        "--checkpointing-steps", default=10000, type=int,
+        "--checkpointing-steps", default=10000, type=int,  # NOTE 10000
         help="The step count to save the checkpoint.")
     parser.add_argument(
-        "--evaluation-steps", default=10000, type=int,
+        "--evaluation-steps", default=0, type=int,  # NOTE 10000 or set 0 to avoid it
         help="The step count to preview the pipeline result.")
     parser.add_argument(
         "--resume-from", default=None, type=int,

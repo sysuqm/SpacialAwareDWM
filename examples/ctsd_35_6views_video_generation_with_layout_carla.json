@@ -159,7 +159,7 @@
         "_class_name": "dwm.datasets.common.DatasetAdapter",
         "base_dataset": {
             "_class_name": "dwm.datasets.preview.PreviewDataset",
-            "json_file": "/media/data4/sumq/opendwm/opendwm-data/nuscenes_scene-0627_package/data.json",
+            "json_file": "/media/data4/sumq/opendwm/opendwm-data/carla_town04_package/data.json",
             "sequence_length": 179,
             "fps_stride_tuples": [
                 [

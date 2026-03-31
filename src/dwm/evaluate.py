@@ -1,8 +1,13 @@
 import argparse
-import dwm.common
+import datetime
 import json
 import os
+
+import dwm.common
 import torch
+import torch.distributed
+import torch.utils.data
+import torch.utils.data.distributed
 
 
 def create_parser():
@@ -37,7 +42,10 @@ if __name__ == "__main__":
         if config["device"] == "cuda":
             torch.cuda.set_device(local_rank)
 
-        torch.distributed.init_process_group(backend=config["ddp_backend"])
+        torch.distributed.init_process_group(
+            backend=config["ddp_backend"],
+            timeout=datetime.timedelta(hours=12)  # NOTE
+        )
     else:
         device = torch.device(config["device"])
 

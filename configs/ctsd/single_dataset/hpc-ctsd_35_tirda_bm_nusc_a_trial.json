@@ -1,7 +1,7 @@
 {
     "device": "cuda",
     "ddp_backend": "nccl",
-    "train_epochs": 6,
+    "train_epochs": 3,
     "generator_seed": 0,
     "data_shuffle": true,
     "global_state": {
@@ -9,9 +9,10 @@
             "_class_name": "dwm.fs.czip.CombinedZipFileSystem",
             "fs": {
                 "_class_name": "dwm.fs.dirfs.DirFileSystem",
-                "path": "/media/data2/sumq/nuscenes-zip/"
+                "path": "/XYAIFS00/HDD_POOL/sysu_xhxiexy/sysu_xhxiexy_4/suqm/nuscenes-zip"
             },
             "paths": [
+                "v1.0-trainval_meta.zip",
                 "interp_12Hz_trainval.zip",
                 "v1.0-trainval01_blobs.zip",
                 "v1.0-trainval02_blobs.zip",
@@ -30,14 +31,14 @@
             "_class_name": "torch.distributed.device_mesh.init_device_mesh",
             "device_type": "cuda",
             "mesh_shape": [
-                7,
-                1
+                2,
+                4
             ]
         }
     },
     "optimizer": {
         "_class_name": "torch.optim.AdamW",
-        "lr": 5e-5,
+        "lr": 2.5e-5,
         "betas": [
             0.9,
             0.975
@@ -241,8 +242,8 @@
                 "use_zero_convs": true
             }
         },
-        "pretrained_model_name_or_path": "/media/data4/sumq/stabilityai/stable-diffusion-3.5-medium",
-        "model_checkpoint_path": "/media/data4/sumq/opendwm/ckpt/ctsd_35_tirda_bm_nwao_40k.pth",
+        "pretrained_model_name_or_path": "/XYAIFS00/HDD_POOL/sysu_xhxiexy/sysu_xhxiexy_4/suqm/stabilityai/stable-diffusion-3.5-medium",
+        "model_checkpoint_path": "/XYAIFS00/HDD_POOL/sysu_xhxiexy/sysu_xhxiexy_4/suqm/ckpt/ctsd_35_tirda_bm_nwao_40k.pth",
         "model_load_state_args": {
             "strict": false
         },
@@ -253,7 +254,7 @@
             },
             "fvd": {
                 "_class_name": "dwm.metrics.fvd.FrechetVideoDistance",
-                "inception_3d_checkpoint_path": "/media/data4/sumq/opendwm/OpenDWM/externals/TATS/tats/fvd/i3d_pretrained_400.pt",
+                "inception_3d_checkpoint_path": "/XYAIFS00/HDD_POOL/sysu_xhxiexy/sysu_xhxiexy_4/suqm/OpenDWM/externals/TATS/tats/fvd/i3d_pretrained_400.pt",
                 "sequence_count": 16
             }
         }
@@ -346,8 +347,8 @@
             },
             "hdmap_image_settings": {},
             "image_description_settings": {
-                "path": "/cache/aoss.cn-sh-01.sensecoreapi-oss.cn/users/wuzehuan/workspaces/worldmodels/data/nuscenes_v1.0-trainval_caption_v2_train.json",
-                "time_list_dict_path": "/cache/aoss.cn-sh-01.sensecoreapi-oss.cn/users/wuzehuan/workspaces/worldmodels/data/nuscenes_v1.0-trainval_caption_v2_times_train.json",
+                "path": "/XYAIFS00/HDD_POOL/sysu_xhxiexy/sysu_xhxiexy_4/suqm/opendwm-data/nuscenes_v1.0-trainval_caption_v2/nuscenes_v1.0-trainval_caption_v2_train.json",
+                "time_list_dict_path": "/XYAIFS00/HDD_POOL/sysu_xhxiexy/sysu_xhxiexy_4/suqm/opendwm-data/nuscenes_v1.0-trainval_caption_v2/nuscenes_v1.0-trainval_caption_v2_times_train.json",
                 "align_keys": [
                     "time",
                     "weather"
@@ -482,7 +483,6 @@
             "keyframe_only": true,
             "enable_synchronization_check": false,
             "enable_camera_transforms": true,
-            "enable_sample_data": true,
             "enable_ego_transforms": true, 
             "_3dbox_image_settings": {
                 "color_table": {
@@ -545,8 +545,8 @@
             },
             "hdmap_image_settings": {},
             "image_description_settings": {
-                "path": "/media/data4/sumq/opendwm/opendwm-data/nuscenes_v1.0-trainval_caption_v2/nuscenes_v1.0-trainval_caption_v2_val.json",
-                "time_list_dict_path": "/media/data4/sumq/opendwm/opendwm-data/nuscenes_v1.0-trainval_caption_v2/nuscenes_v1.0-trainval_caption_v2_times_val.json",
+                "path": "/XYAIFS00/HDD_POOL/sysu_xhxiexy/sysu_xhxiexy_4/suqm/opendwm-data/nuscenes_v1.0-trainval_caption_v2/nuscenes_v1.0-trainval_caption_v2_val.json",
+                "time_list_dict_path": "/XYAIFS00/HDD_POOL/sysu_xhxiexy/sysu_xhxiexy_4/suqm/opendwm-data/nuscenes_v1.0-trainval_caption_v2/nuscenes_v1.0-trainval_caption_v2_times_val.json",
                 "align_keys": [
                     "time",
                     "weather"
@@ -643,34 +643,32 @@
     },
     "training_dataloader": {
         "batch_size": 2,
-        "num_workers": 3,
+        "num_workers": 8,
         "prefetch_factor": 3,
         "collate_fn": {
             "_class_name": "dwm.datasets.common.CollateFnIgnoring",
             "keys": [
-                "clip_text",
-                "sample_data"
+                "clip_text"
             ]
         },
         "persistent_workers": true
     },
     "validation_dataloader": {
         "batch_size": 1,
-        "num_workers": 1,
+        "num_workers": 4,
         "prefetch_factor": 3,
         "collate_fn": {
             "_class_name": "dwm.datasets.common.CollateFnIgnoring",
             "keys": [
-                "clip_text",
-                "sample_data"
+                "clip_text"
             ]
         },
         "persistent_workers": true
     },
     "preview_dataloader": {
         "batch_size": 1,
-        "num_workers": 1,
-        "prefetch_factor": 1,
+        "num_workers": 4,
+        "prefetch_factor": 2,
         "shuffle": true,
         "drop_last": true,
         "collate_fn": {

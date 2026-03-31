@@ -9,21 +9,21 @@
             "_class_name": "dwm.fs.czip.CombinedZipFileSystem",
             "fs": {
                 "_class_name": "dwm.fs.dirfs.DirFileSystem",
-                "path": "/media/data2/sumq/nuscenes-zip/"
+                "path": "/"
             },
             "paths": [
-                "interp_12Hz_trainval.zip",
-                "v1.0-trainval01_blobs.zip",
-                "v1.0-trainval02_blobs.zip",
-                "v1.0-trainval03_blobs.zip",
-                "v1.0-trainval04_blobs.zip",
-                "v1.0-trainval05_blobs.zip",
-                "v1.0-trainval06_blobs.zip",
-                "v1.0-trainval07_blobs.zip",
-                "v1.0-trainval08_blobs.zip",
-                "v1.0-trainval09_blobs.zip",
-                "v1.0-trainval10_blobs.zip",
-                "nuScenes-map-expansion-v1.3.zip"
+                "/media/data4/sumq/nuscenes-zip/interp_12Hz_trainval.zip",
+                "/media/data4/sumq/nuscenes-zip/v1.0-trainval01_blobs.zip",
+                "/media/data4/sumq/nuscenes-zip/v1.0-trainval02_blobs.zip",
+                "/media/data4/sumq/nuscenes-zip/v1.0-trainval03_blobs.zip",
+                "/media/data4/sumq/nuscenes-zip/v1.0-trainval04_blobs.zip",
+                "/media/data4/sumq/nuscenes-zip/v1.0-trainval05_blobs.zip",
+                "/media/data4/sumq/nuscenes-zip/v1.0-trainval06_blobs.zip",
+                "/media/data4/sumq/nuscenes-zip/v1.0-trainval07_blobs.zip",
+                "/media/data4/sumq/nuscenes-zip/v1.0-trainval08_blobs.zip",
+                "/media/data4/sumq/nuscenes-zip/v1.0-trainval09_blobs.zip",
+                "/media/data4/sumq/nuscenes-zip/v1.0-trainval10_blobs.zip",
+                "/media/data4/sumq/nuscenes-zip/nuScenes-map-expansion-v1.3.zip"
             ]
         },
         "device_mesh": {
@@ -241,8 +241,8 @@
                 "use_zero_convs": true
             }
         },
-        "pretrained_model_name_or_path": "/media/data4/sumq/stabilityai/stable-diffusion-3.5-medium",
-        "model_checkpoint_path": "/media/data4/sumq/opendwm/ckpt/ctsd_35_tirda_bm_nwao_40k.pth",
+        "pretrained_model_name_or_path": "/media/data1/sumq/stabilityai/stable-diffusion-3.5-medium",
+        "model_checkpoint_path": "/media/data1/sumq/OpenDWM/ckpt/ctsd_35_tirda_bm_nwao_40k.pth",
         "model_load_state_args": {
             "strict": false
         },
@@ -253,7 +253,7 @@
             },
             "fvd": {
                 "_class_name": "dwm.metrics.fvd.FrechetVideoDistance",
-                "inception_3d_checkpoint_path": "/media/data4/sumq/opendwm/OpenDWM/externals/TATS/tats/fvd/i3d_pretrained_400.pt",
+                "inception_3d_checkpoint_path": "/media/data1/sumq/OpenDWM/OpenDWM/externals/TATS/tats/fvd/i3d_pretrained_400.pt",
                 "sequence_count": 16
             }
         }
@@ -545,8 +545,8 @@
             },
             "hdmap_image_settings": {},
             "image_description_settings": {
-                "path": "/media/data4/sumq/opendwm/opendwm-data/nuscenes_v1.0-trainval_caption_v2/nuscenes_v1.0-trainval_caption_v2_val.json",
-                "time_list_dict_path": "/media/data4/sumq/opendwm/opendwm-data/nuscenes_v1.0-trainval_caption_v2/nuscenes_v1.0-trainval_caption_v2_times_val.json",
+                "path": "/media/data1/sumq/OpenDWM/opendwm-data/nuscenes_v1.0-trainval_caption_v2/nuscenes_v1.0-trainval_caption_v2_val.json",
+                "time_list_dict_path": "/media/data1/sumq/OpenDWM/opendwm-data/nuscenes_v1.0-trainval_caption_v2/nuscenes_v1.0-trainval_caption_v2_times_val.json",
                 "align_keys": [
                     "time",
                     "weather"
